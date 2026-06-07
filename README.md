@@ -1,4 +1,4 @@
-# pytoolset
+# pytoolset <a href="https://github.com/wbvguo/pytoolset/"><img src="docs/images/pytoolset.png" align="right" height="138" alt="pytoolset website" /></a>
 
 A collection of Python utility functions.
 
