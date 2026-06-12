@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
 
 
@@ -32,3 +33,47 @@ def find_project_root(
             return path
 
     raise FileNotFoundError(f"Could not find {marker!r} above {start}")
+
+
+def find_file(
+    name: str,
+    path: str | os.PathLike[str] = ".",
+    exclude_dir: Iterable[str] | None = None,
+    hidden: bool = False,
+) -> list[Path]:
+    """Recursively search a directory tree for files matching a given name.
+
+    Args:
+        name: The file name to search for (matched against each entry's base name).
+        path: The directory to start the search from. Defaults to the current
+            working directory (``"."``).
+        exclude_dir: Directory base names to skip during the search. Defaults to
+            ``None``.
+        hidden: Whether to descend into hidden folders (those whose name starts
+            with a dot). Defaults to ``False``, i.e. hidden folders are skipped.
+
+    Returns:
+        A list of paths (relative to ``path``) for every match found. Returns an
+        empty list if no match is found.
+
+    Raises:
+        NotADirectoryError: If ``path`` does not exist or is not a directory.
+    """
+    root = Path(path)
+    if not root.is_dir():
+        raise NotADirectoryError(f"Directory does not exist: {root}")
+
+    excluded = set(exclude_dir) if exclude_dir is not None else set()
+    matches: list[Path] = []
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Prune directories in place so os.walk does not descend into them.
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d not in excluded and (hidden or not d.startswith("."))
+        ]
+        if name in filenames:
+            matches.append(Path(dirpath, name).relative_to(root))
+
+    return matches
