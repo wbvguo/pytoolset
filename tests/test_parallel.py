@@ -144,6 +144,39 @@ def test_cli_single_job_can_skip_header(tmp_path, capsys):
     assert "1 ok, 0 failed" in capsys.readouterr().out
 
 
+def test_cli_single_job_uses_selected_record(tmp_path, capsys):
+    rows = tmp_path / "rows.txt"
+    rows.write_text("\nfirst\nsecond\nthird\n")
+
+    rc = _main(
+        [
+            str(rows), "-n", "2", "-o", str(tmp_path), "--", sys.executable,
+            "-c", "import sys; print(sys.argv[1])", "{}",
+        ],
+        single_job=True,
+    )
+
+    assert rc == 0
+    assert (tmp_path / "jobs_1.log").read_text() == "second\n"
+    assert "1 ok, 0 failed" in capsys.readouterr().out
+
+
+def test_cli_single_job_selects_record_after_header(tmp_path):
+    rows = tmp_path / "rows.txt"
+    rows.write_text("id\nfirst\nsecond\n")
+
+    rc = _main(
+        [
+            str(rows), "--header", "-n", "2", "-o", str(tmp_path), "--",
+            sys.executable, "-c", "import sys; print(sys.argv[1])", "{}",
+        ],
+        single_job=True,
+    )
+
+    assert rc == 0
+    assert (tmp_path / "jobs_1.log").read_text() == "second\n"
+
+
 def test_cli_parallel_can_skip_header(tmp_path, capsys):
     rows = tmp_path / "rows.txt"
     rows.write_text("id\nfirst\nsecond\n")

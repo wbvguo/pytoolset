@@ -7,7 +7,7 @@ from pathlib import Path
 
 _TOOLS = {
     "select": "filter rows in a CSV or TSV file",
-    "run": "test a command on the first input row",
+    "run": "test a command on one selected input row",
     "parallel": "run a command template once per id, concurrently",
 }
 

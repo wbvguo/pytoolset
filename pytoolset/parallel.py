@@ -194,7 +194,8 @@ def _main(
 
     Args:
         argv: Argument list to parse. Defaults to ``None`` (uses ``sys.argv``).
-        single_job: Run only the first non-empty input row. Defaults to ``False``.
+        single_job: Run only one selected non-empty input row. Defaults to
+            ``False``.
         prog: Program name shown in command help.
 
     Returns:
@@ -204,7 +205,7 @@ def _main(
         prog=prog,
         usage=f"{prog} [INPUT] [options] -- COMMAND [ARG ...]",
         description=(
-            "Test a command on the first non-empty input row."
+            "Test a command on one non-empty input record."
             if single_job
             else "Run a command once per input row, concurrently, with "
             "per-row log/err files."
@@ -214,7 +215,12 @@ def _main(
                         help="input file, or '-' for stdin (default: '-')")
     parser.add_argument("--header", action="store_true",
                         help="skip the first non-empty input row")
-    if not single_job:
+    if single_job:
+        parser.add_argument(
+            "-n", "--record", type=int, default=1, metavar="N",
+            help="run the Nth non-empty record (default: 1)",
+        )
+    else:
         parser.add_argument("-j", "--jobs", type=int, default=None,
                             help="number of concurrent jobs (default: CPU-based)")
     parser.add_argument("-o", "--log-dir", default=".",
@@ -229,6 +235,8 @@ def _main(
         parser.error("a command is required after '--'")
     separator = raw_args.index("--")
     args = parser.parse_args(raw_args[:separator])
+    if single_job and args.record < 1:
+        parser.error("--record must be at least 1")
     command_args = raw_args[separator + 1:]
 
     if not command_args:
@@ -247,7 +255,8 @@ def _main(
             rows = rows[:first_row] + rows[first_row + 1:]
 
     if single_job:
-        rows = [row for row in rows if row.strip()][:1]
+        nonempty_rows = [row for row in rows if row.strip()]
+        rows = nonempty_rows[args.record - 1:args.record]
 
     results = CommandRunner(
         command,
