@@ -3,16 +3,16 @@ from __future__ import annotations
 import sys
 import types
 
-from pytoolset import session_info
+from pytoolset import sessionInfo
 
 
 def test_session_info_returns_none(capsys):
-    assert session_info() is None
+    assert sessionInfo() is None
     capsys.readouterr()  # drain
 
 
 def test_session_info_prints_header_fields(capsys):
-    session_info()
+    sessionInfo()
     out = capsys.readouterr().out
     assert "Python version:" in out
     assert "Platform:" in out
@@ -26,7 +26,7 @@ def test_session_info_lists_versioned_top_level_module(capsys):
     fake.__version__ = "9.9.9"
     sys.modules["fakepkg_for_test"] = fake
     try:
-        session_info()
+        sessionInfo()
         out = capsys.readouterr().out
     finally:
         del sys.modules["fakepkg_for_test"]
@@ -41,7 +41,7 @@ def test_session_info_excludes_dotted_submodules(capsys):
     sys.modules["fakeparent"] = parent
     sys.modules["fakeparent.sub"] = child
     try:
-        session_info()
+        sessionInfo()
         out = capsys.readouterr().out
     finally:
         del sys.modules["fakeparent"]
@@ -54,7 +54,7 @@ def test_session_info_excludes_modules_without_version(capsys):
     noversion = types.ModuleType("fakenoversion")  # no __version__
     sys.modules["fakenoversion"] = noversion
     try:
-        session_info()
+        sessionInfo()
         out = capsys.readouterr().out
     finally:
         del sys.modules["fakenoversion"]
@@ -70,7 +70,7 @@ def test_session_info_packages_listed_sorted(capsys):
     sys.modules["zzz_fakepkg"] = z
     sys.modules["aaa_fakepkg"] = a
     try:
-        session_info()
+        sessionInfo()
         out = capsys.readouterr().out
     finally:
         del sys.modules["zzz_fakepkg"]

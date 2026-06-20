@@ -4,7 +4,7 @@ import platform
 import sys
 
 
-def session_info() -> None:
+def sessionInfo() -> None:
     """Print Python/platform details and versions of loaded top-level packages."""
     print("Python version:", sys.version)
     print("Platform:", platform.platform())
@@ -24,4 +24,4 @@ def session_info() -> None:
 
 
 if __name__ == "__main__":
-    session_info()
+    sessionInfo()
