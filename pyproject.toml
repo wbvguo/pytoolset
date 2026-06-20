@@ -20,6 +20,7 @@ classifiers = [
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
 text = ["pypdf>=4.0", "tiktoken>=0.7"]
+youtube = ["yt-dlp>=2024.0"]
 
 [project.urls]
 Homepage = "https://github.com/wbvguo/pytoolset"

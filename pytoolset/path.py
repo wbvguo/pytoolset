@@ -6,7 +6,14 @@ from pathlib import Path
 
 
 def mkdir(path: str | os.PathLike[str]) -> Path:
-    """Create a directory and its parents; print a message if it already exists."""
+    """Create a directory and its parents, skipping if it already exists.
+
+    Args:
+        path: The directory to create.
+
+    Returns:
+        The absolute, resolved path of the directory.
+    """
     path = Path(path).resolve()
     if path.exists():
         print(f"{path} exists! Skip creating...")
@@ -16,7 +23,14 @@ def mkdir(path: str | os.PathLike[str]) -> Path:
 
 
 def get_absolute_path(path: str | os.PathLike[str]) -> Path:
-    """Return the absolute, resolved form of a path."""
+    """Return the absolute, resolved form of a path.
+
+    Args:
+        path: The path to resolve.
+
+    Returns:
+        The absolute, resolved path.
+    """
     return Path(path).resolve()
 
 
@@ -24,7 +38,21 @@ def find_project_root(
     anchor: str | os.PathLike[str] = ".",
     marker: str = "pyproject.toml",
 ) -> Path:
-    """Walk upward from anchor until a project marker file is found."""
+    """Walk upward from an anchor until a project marker file is found.
+
+    Args:
+        anchor: The path to start searching from. Defaults to the current
+            working directory (``"."``).
+        marker: The marker file that identifies the project root. Defaults to
+            ``"pyproject.toml"``.
+
+    Returns:
+        The first ancestor directory (including the anchor) that contains
+        ``marker``.
+
+    Raises:
+        FileNotFoundError: If no ancestor directory contains ``marker``.
+    """
     resolved = Path(anchor).resolve()
     start = resolved if resolved.is_dir() else resolved.parent
 
