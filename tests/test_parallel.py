@@ -1,141 +1,119 @@
 from __future__ import annotations
 
-import time
-from functools import partial
+import io
+import sys
 
-import pytest
+from pytoolset import CommandRunner
+from pytoolset.parallel import _main
 
-from pytoolset import ProcessWorker, ThreadWorker
-
-
-# --- helpers (module-level so ProcessPoolExecutor can pickle them) ---
-
-def _double(x: int) -> int:
-    return x * 2
+TAB = "\t"
 
 
-def _identity(x: int) -> int:
-    return x
+# --- CommandRunner: row delivery ---
 
 
-def _raise_runtime() -> None:
-    raise RuntimeError("cpu error")
+def test_row_as_argument_placeholder(tmp_path):
+    # '{}' present -> row delivered as a single argv element (argv[1] under -c).
+    cmd = f'{sys.executable} -c "import sys; sys.stdout.write(sys.argv[1])" {{}}'
+    results = CommandRunner(cmd, log_dir=tmp_path).run(["s1\tA"])
+    assert results[0].ok
+    assert (tmp_path / "jobs_1.log").read_text() == "s1\tA"
 
 
-def _print_and_return(msg: str, value: int) -> int:
-    print(msg)
-    return value
+def test_row_piped_to_stdin(tmp_path):
+    # No '{}' -> row written to the command's stdin.
+    cmd = f'{sys.executable} -c "import sys; sys.stdout.write(sys.stdin.read())"'
+    results = CommandRunner(cmd, log_dir=tmp_path).run(["hello world"])
+    assert results[0].ok
+    assert (tmp_path / "jobs_1.log").read_text().strip() == "hello world"
 
 
-# --- ThreadWorker ---
+def test_command_parses_its_own_columns(tmp_path):
+    # The runner stays column-agnostic; the command splits the row itself.
+    code = "import sys; print(sys.argv[1].split(chr(9))[1])"  # 2nd tab-column
+    cmd = f'{sys.executable} -c "{code}" {{}}'
+    results = CommandRunner(cmd, log_dir=tmp_path).run([f"s1{TAB}A", f"s2{TAB}B"])
+    assert [r.returncode for r in results] == [0, 0]
+    assert (tmp_path / "jobs_1.log").read_text().strip() == "A"
+    assert (tmp_path / "jobs_2.log").read_text().strip() == "B"
 
 
-def test_thread_returns_results_in_order():
-    tasks = [lambda i=i: i * 2 for i in range(5)]
-    assert ThreadWorker().run(tasks) == [0, 2, 4, 6, 8]
+# --- CommandRunner: scheduling / robustness ---
 
 
-def test_thread_empty_list():
-    assert ThreadWorker().run([]) == []
+def test_results_in_input_order(tmp_path):
+    cmd = f'{sys.executable} -c "pass" {{}}'
+    results = CommandRunner(cmd, log_dir=tmp_path).run(["c", "a", "b"])
+    assert [(r.index, r.row) for r in results] == [(1, "c"), (2, "a"), (3, "b")]
 
 
-def test_thread_single_task():
-    assert ThreadWorker().run([lambda: 42]) == [42]
+def test_blank_rows_skipped_and_line_endings_stripped(tmp_path):
+    cmd = f'{sys.executable} -c "import sys; sys.stdout.write(sys.stdin.read())"'
+    results = CommandRunner(cmd, log_dir=tmp_path).run(["x\n", "   ", "", "y\r\n"])
+    assert [r.row for r in results] == ["x", "y"]
+    assert (tmp_path / "jobs_1.log").read_text().strip() == "x"
+    assert (tmp_path / "jobs_2.log").read_text().strip() == "y"
 
 
-def test_thread_max_workers():
-    tasks = [lambda i=i: i for i in range(10)]
-    assert ThreadWorker(max_workers=2).run(tasks) == list(range(10))
+def test_nonzero_exit_does_not_raise(tmp_path):
+    cmd = f'{sys.executable} -c "import sys; sys.stderr.write(\'boom\'); sys.exit(3)"'
+    results = CommandRunner(cmd, log_dir=tmp_path).run(["r1"])
+    assert results[0].returncode == 3
+    assert not results[0].ok
+    assert "boom" in (tmp_path / "jobs_1.err").read_text()
 
 
-def test_thread_exception_propagates():
-    def boom():
-        raise ValueError("oops")
-
-    with pytest.raises(ValueError, match="oops"):
-        ThreadWorker().run([boom])
-
-
-def test_thread_is_concurrent():
-    sleep_time = 0.2
-    n = 5
-    tasks = [lambda: time.sleep(sleep_time)] * n
-    start = time.monotonic()
-    ThreadWorker().run(tasks)
-    elapsed = time.monotonic() - start
-    assert elapsed < sleep_time * n * 0.5
+def test_malformed_command_does_not_raise(tmp_path):
+    # Unbalanced quote -> shlex.split raises ValueError; captured as a failure.
+    results = CommandRunner("echo 'oops", log_dir=tmp_path).run(["r1"])
+    assert results[0].returncode == -1
+    assert "failed to launch" in (tmp_path / "jobs_1.err").read_text()
 
 
-def test_thread_log_file_output(tmp_path):
-    log_file = tmp_path / "run.log"
-    tasks = [
-        lambda: (print("hello from 1"), 1)[1],
-        lambda: (print("hello from 2"), 2)[1],
-    ]
-    results = ThreadWorker(log_file=log_file).run(tasks)
-    assert results == [1, 2]
-    contents = log_file.read_text()
-    assert "hello from 1" in contents
-    assert "hello from 2" in contents
+def test_launch_failure_returns_minus_one(tmp_path):
+    results = CommandRunner("definitely-not-real-xyz {}", log_dir=tmp_path).run(["a"])
+    assert results[0].returncode == -1
+    assert "failed to launch" in (tmp_path / "jobs_1.err").read_text()
 
 
-def test_thread_log_file_no_output(tmp_path):
-    log_file = tmp_path / "run.log"
-    assert ThreadWorker(log_file=log_file).run([lambda: 99]) == [99]
-    assert log_file.read_text() == ""
+def test_empty_input(tmp_path):
+    assert CommandRunner("echo {}", log_dir=tmp_path).run([]) == []
 
 
-def test_thread_log_file_results_correct(tmp_path):
-    log_file = tmp_path / "run.log"
-    tasks = [lambda i=i: i * 3 for i in range(4)]
-    assert ThreadWorker(log_file=log_file).run(tasks) == [0, 3, 6, 9]
+def test_creates_log_dir(tmp_path):
+    log_dir = tmp_path / "nested" / "logs"
+    CommandRunner(f'{sys.executable} -c "pass"', log_dir=log_dir).run(["r1"])
+    assert log_dir.is_dir()
 
 
-# --- ProcessWorker ---
+# --- CLI (python -m pytoolset.parallel) ---
 
 
-def test_process_returns_results_in_order():
-    tasks = [partial(_double, i) for i in range(5)]
-    assert ProcessWorker().run(tasks) == [0, 2, 4, 6, 8]
+def test_cli_from_stdin(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO("a\nb\n"))
+    cmd = f'{sys.executable} -c "import sys; sys.stdout.write(sys.argv[1])" {{}}'
+    rc = _main(["-c", cmd, "-o", str(tmp_path)])
+    assert rc == 0
+    assert (tmp_path / "jobs_1.log").read_text() == "a"
+    assert (tmp_path / "jobs_2.log").read_text() == "b"
+    assert "2 ok, 0 failed" in capsys.readouterr().out
 
 
-def test_process_empty_list():
-    assert ProcessWorker().run([]) == []
+def test_cli_from_input_file(tmp_path, capsys):
+    rows = tmp_path / "rows.txt"
+    rows.write_text("a\nb\nc\n")
+    cmd = f'{sys.executable} -c "pass" {{}}'
+    rc = _main(["-c", cmd, "-i", str(rows), "-o", str(tmp_path)])
+    assert rc == 0
+    assert "3 ok, 0 failed" in capsys.readouterr().out
 
 
-def test_process_single_task():
-    assert ProcessWorker().run([partial(_double, 21)]) == [42]
-
-
-def test_process_max_workers():
-    tasks = [partial(_identity, i) for i in range(10)]
-    assert ProcessWorker(max_workers=2).run(tasks) == list(range(10))
-
-
-def test_process_exception_propagates():
-    with pytest.raises(RuntimeError, match="cpu error"):
-        ProcessWorker().run([_raise_runtime])
-
-
-def test_process_log_files_output(tmp_path):
-    prefix = tmp_path / "log"
-    tasks = [
-        partial(_print_and_return, "cpu hello 1", 10),
-        partial(_print_and_return, "cpu hello 2", 20),
-    ]
-    results = ProcessWorker(log_prefix=prefix).run(tasks)
-    assert results == [10, 20]
-    assert (tmp_path / "log1.log").read_text().strip() == "cpu hello 1"
-    assert (tmp_path / "log2.log").read_text().strip() == "cpu hello 2"
-
-
-def test_process_log_files_no_output(tmp_path):
-    prefix = tmp_path / "log"
-    assert ProcessWorker(log_prefix=prefix).run([partial(_double, 5)]) == [10]
-    assert (tmp_path / "log1.log").read_text() == ""
-
-
-def test_process_log_files_results_correct(tmp_path):
-    prefix = tmp_path / "log"
-    tasks = [partial(_double, i) for i in range(4)]
-    assert ProcessWorker(log_prefix=prefix).run(tasks) == [0, 2, 4, 6]
+def test_cli_reports_failure(tmp_path, capsys):
+    rows = tmp_path / "rows.txt"
+    rows.write_text("0\n2\n")
+    cmd = f'{sys.executable} -c "import sys; sys.exit(int(sys.argv[1]))" {{}}'
+    rc = _main(["-c", cmd, "-i", str(rows), "-o", str(tmp_path)])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "1 ok, 1 failed" in out
+    assert "row 2" in out
