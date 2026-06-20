@@ -7,6 +7,7 @@ from pathlib import Path
 
 _TOOLS = {
     "select": "filter rows in a CSV or TSV file",
+    "run": "test a command on the first input row",
     "parallel": "run a command template once per id, concurrently",
 }
 
@@ -30,11 +31,15 @@ def main(argv: list[str] | None = None) -> int:
     if tool == "select":
         from .select import _main
 
-        return _main(tool_args)
+        return _main(tool_args, prog=f"{prog} select")
     if tool == "parallel":
         from .parallel import _main
 
-        return _main(tool_args)
+        return _main(tool_args, prog=f"{prog} parallel")
+    if tool == "run":
+        from .parallel import _main
+
+        return _main(tool_args, single_job=True, prog=f"{prog} run")
 
     print(f"pytoolset: unknown tool {tool!r}", file=sys.stderr)
     _print_help(prog)

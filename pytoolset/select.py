@@ -46,17 +46,24 @@ def _values(item: str) -> set[str]:
     return values
 
 
-def _main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Filter rows in a CSV or TSV file.")
+def _main(
+    argv: list[str] | None = None,
+    *,
+    prog: str = "pytoolset.select",
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Filter rows in a CSV or TSV file.",
+    )
     parser.add_argument("file", type=Path, help="input .csv or .tsv file")
     parser.add_argument("-c", "--column", required=True, help="column to filter")
     filters = parser.add_mutually_exclusive_group(required=True)
     filters.add_argument(
-        "-i", "--include", metavar="VALUES_OR_FILE",
+        "-k", "--include", metavar="VALUES_OR_FILE",
         help="keep comma-separated values or values from a file (one ID per line)",
     )
     filters.add_argument(
-        "-e", "--exclude", metavar="VALUES_OR_FILE",
+        "-x", "--exclude", metavar="VALUES_OR_FILE",
         help="drop comma-separated values or values from a file (one ID per line)",
     )
     parser.add_argument(

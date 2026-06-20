@@ -181,7 +181,12 @@ class CommandRunner:
             return [f.result() for f in futures]
 
 
-def _main(argv: list[str] | None = None) -> int:
+def _main(
+    argv: list[str] | None = None,
+    *,
+    single_job: bool = False,
+    prog: str = "pytoolset.parallel",
+) -> int:
     """Entry point for ``python -m pytoolset.parallel``.
 
     Reads rows from an input file (or stdin) and runs the command once per row,
@@ -189,38 +194,64 @@ def _main(argv: list[str] | None = None) -> int:
 
     Args:
         argv: Argument list to parse. Defaults to ``None`` (uses ``sys.argv``).
+        single_job: Run only the first non-empty input row. Defaults to ``False``.
+        prog: Program name shown in command help.
 
     Returns:
         A process exit code: ``0`` if all jobs succeeded, ``1`` if any failed.
     """
     parser = argparse.ArgumentParser(
-        prog="pytoolset.parallel",
-        description="Run a command once per input row, concurrently, with "
-        "per-row log/err files.",
+        prog=prog,
+        usage=f"{prog} [INPUT] [options] -- COMMAND [ARG ...]",
+        description=(
+            "Test a command on the first non-empty input row."
+            if single_job
+            else "Run a command once per input row, concurrently, with "
+            "per-row log/err files."
+        ),
     )
-    parser.add_argument("-c", "--cmd", required=True,
-                        help="command to run; include '{}' to receive the row as "
-                        "an argument, otherwise the row is piped to stdin")
-    parser.add_argument("-i", "--input", default=None,
-                        help="input file of rows (default: read rows from stdin)")
-    parser.add_argument("-j", "--jobs", type=int, default=None,
-                        help="number of concurrent jobs (default: CPU-based)")
+    parser.add_argument("input", nargs="?", default="-",
+                        help="input file, or '-' for stdin (default: '-')")
+    parser.add_argument("--header", action="store_true",
+                        help="skip the first non-empty input row")
+    if not single_job:
+        parser.add_argument("-j", "--jobs", type=int, default=None,
+                            help="number of concurrent jobs (default: CPU-based)")
     parser.add_argument("-o", "--log-dir", default=".",
                         help="directory for per-row log/err files (default: cwd)")
     parser.add_argument("--prefix", default="jobs_", help="log filename prefix")
     parser.add_argument("--shell", action="store_true",
                         help="run via the shell instead of shlex.split")
-    args = parser.parse_args(argv)
+    raw_args = sys.argv[1:] if argv is None else argv
+    if "-h" in raw_args or "--help" in raw_args:
+        parser.parse_args(["--help"])
+    if "--" not in raw_args:
+        parser.error("a command is required after '--'")
+    separator = raw_args.index("--")
+    args = parser.parse_args(raw_args[:separator])
+    command_args = raw_args[separator + 1:]
 
-    if args.input is not None:
+    if not command_args:
+        parser.error("a command is required after '--'")
+    command = " ".join(command_args) if args.shell else shlex.join(command_args)
+
+    if args.input == "-":
+        rows = sys.stdin.readlines()
+    else:
         with open(args.input) as fh:
             rows = fh.readlines()
-    else:
-        rows = sys.stdin.readlines()
+
+    if args.header:
+        first_row = next((i for i, row in enumerate(rows) if row.strip()), None)
+        if first_row is not None:
+            rows = rows[:first_row] + rows[first_row + 1:]
+
+    if single_job:
+        rows = [row for row in rows if row.strip()][:1]
 
     results = CommandRunner(
-        args.cmd,
-        max_workers=args.jobs,
+        command,
+        max_workers=1 if single_job else args.jobs,
         log_dir=args.log_dir,
         prefix=args.prefix,
         shell=args.shell,

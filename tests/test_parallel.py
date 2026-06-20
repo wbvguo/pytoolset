@@ -91,28 +91,80 @@ def test_creates_log_dir(tmp_path):
 
 def test_cli_from_stdin(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO("a\nb\n"))
-    cmd = f'{sys.executable} -c "import sys; sys.stdout.write(sys.argv[1])" {{}}'
-    rc = _main(["-c", cmd, "-o", str(tmp_path)])
+    rc = _main([
+        "-o", str(tmp_path), "--", sys.executable, "-c",
+        "import sys; sys.stdout.write(sys.argv[1])", "{}",
+    ])
     assert rc == 0
     assert (tmp_path / "jobs_1.log").read_text() == "a"
     assert (tmp_path / "jobs_2.log").read_text() == "b"
     assert "2 ok, 0 failed" in capsys.readouterr().out
 
-
 def test_cli_from_input_file(tmp_path, capsys):
     rows = tmp_path / "rows.txt"
     rows.write_text("a\nb\nc\n")
-    cmd = f'{sys.executable} -c "pass" {{}}'
-    rc = _main(["-c", cmd, "-i", str(rows), "-o", str(tmp_path)])
+    rc = _main([
+        str(rows), "-o", str(tmp_path), "--", sys.executable, "-c", "pass", "{}",
+    ])
     assert rc == 0
     assert "3 ok, 0 failed" in capsys.readouterr().out
+
+
+def test_cli_single_job_uses_first_nonempty_row(tmp_path, capsys):
+    rows = tmp_path / "rows.txt"
+    rows.write_text("\nfirst\nsecond\n")
+
+    rc = _main(
+        [
+            str(rows), "-o", str(tmp_path), "--", sys.executable, "-c",
+            "import sys; print(sys.argv[1])", "{}",
+        ],
+        single_job=True,
+    )
+
+    assert rc == 0
+    assert (tmp_path / "jobs_1.log").read_text() == "first\n"
+    assert not (tmp_path / "jobs_2.log").exists()
+    assert "1 ok, 0 failed" in capsys.readouterr().out
+
+
+def test_cli_single_job_can_skip_header(tmp_path, capsys):
+    rows = tmp_path / "rows.txt"
+    rows.write_text("id\nfirst\nsecond\n")
+    rc = _main(
+        [
+            str(rows), "--header", "-o", str(tmp_path), "--", sys.executable,
+            "-c", "import sys; print(sys.argv[1])", "{}",
+        ],
+        single_job=True,
+    )
+
+    assert rc == 0
+    assert (tmp_path / "jobs_1.log").read_text() == "first\n"
+    assert "1 ok, 0 failed" in capsys.readouterr().out
+
+
+def test_cli_parallel_can_skip_header(tmp_path, capsys):
+    rows = tmp_path / "rows.txt"
+    rows.write_text("id\nfirst\nsecond\n")
+    rc = _main([
+        str(rows), "--header", "-o", str(tmp_path), "--", sys.executable,
+        "-c", "import sys; print(sys.argv[1])", "{}",
+    ])
+
+    assert rc == 0
+    assert (tmp_path / "jobs_1.log").read_text() == "first\n"
+    assert (tmp_path / "jobs_2.log").read_text() == "second\n"
+    assert "2 ok, 0 failed" in capsys.readouterr().out
 
 
 def test_cli_reports_failure(tmp_path, capsys):
     rows = tmp_path / "rows.txt"
     rows.write_text("0\n2\n")
-    cmd = f'{sys.executable} -c "import sys; sys.exit(int(sys.argv[1]))" {{}}'
-    rc = _main(["-c", cmd, "-i", str(rows), "-o", str(tmp_path)])
+    rc = _main([
+        str(rows), "-o", str(tmp_path), "--", sys.executable, "-c",
+        "import sys; sys.exit(int(sys.argv[1]))", "{}",
+    ])
     assert rc == 1
     out = capsys.readouterr().out
     assert "1 ok, 1 failed" in out

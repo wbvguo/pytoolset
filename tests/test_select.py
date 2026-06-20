@@ -53,7 +53,7 @@ def test_cli_reads_include_values_from_file(tmp_path, capsys):
     ids = tmp_path / "include.txt"
     ids.write_text("1\n\n3\n")
 
-    assert _main([str(source), "-c", "id", "-i", str(ids)]) == 0
+    assert _main([str(source), "-c", "id", "-k", str(ids)]) == 0
     assert capsys.readouterr().out == "id,sample\n1,A\n3,C\n"
 
 
@@ -63,7 +63,7 @@ def test_cli_reads_exclude_values_from_file(tmp_path, capsys):
     ids = tmp_path / "exclude.txt"
     ids.write_text("2\n")
 
-    assert _main([str(source), "-c", "id", "-e", str(ids)]) == 0
+    assert _main([str(source), "-c", "id", "-x", str(ids)]) == 0
     assert capsys.readouterr().out == "id\tsample\n1\tA\n3\tC\n"
 
 
